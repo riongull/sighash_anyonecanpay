@@ -1,0 +1,22 @@
+{
+    "example": {
+        "indices": [
+            {
+                "properties": [
+                    {
+                        "$createdAt": "desc"
+                    }
+                ]
+            }
+        ],
+        "required": [
+            "$createdAt"
+        ],
+        "properties": {
+            "message": {
+                "type": "string"
+            }
+        },
+        "additionalProperties": false
+    }
+}
