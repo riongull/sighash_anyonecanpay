@@ -7,6 +7,13 @@ Start with `Init Wallet` and `Create pledge denomination`.
 
 The first time click `Use transaction`. Subsequently click `Add Input`. You can continue clicking `create pledge denomincation` and `Add Input` until you reach your funding goal using the same mnemonic. Or you can initialize multiple mnemonics at the same time and combine their inputs.
 
+## Local Install
+
+```sh
+npm install
+npm run local
+```
+
 ## Dependencies
 
 We will be using the `js-dash-sdk` which imports `wallet-lib` and `dapi-client` for interfacing with the Dash Blockchain (broadcasting transactions) and `dashcore-lib` for lower level transaction manipulation.
@@ -14,7 +21,7 @@ We will be using the `js-dash-sdk` which imports `wallet-lib` and `dapi-client` 
 Both are installed with:
 `npm i dash`
 
-```
+```js
 import Dash from 'dash'
 import Dashcore from '@dashevo/dashcore-lib`
 
@@ -30,7 +37,7 @@ A Transaction consumes Unspent Transaction Outputs (UTXOs) as Inputs and produce
 
 Using `dashcore-lib` a UTXO is represented as an object with the following shape:
 
-```
+```js
 var utxo = new UnspentOutput({
   "txid" : "3912bd2b0c78706db809fff3ab51ac81ef20e0a53f61e4a2369cff0c4084c55c",
   "vout" : 0,
@@ -39,6 +46,7 @@ var utxo = new UnspentOutput({
   "amount" : 4.22900307
 });
 ```
+
 [See docs](https://github.com/dashevo/dashcore-lib/blob/master/docs/core-concepts/unspentoutput.md)
 
 We can assemble a transaction with an array of UTXO objects for Inputs and an array of UTXO objects for ouputs.
@@ -63,26 +71,23 @@ Further reading:
 
 ## Creating the 0x81 Transaction
 
-1. Create the denomination UTXO we want to spend:
+### 1. Create the denomination UTXO we want to spend:
 
 We need to send the amount we want to spend to an address we control (own the privateKey), so we can sign the UTXO we create from it in the next step.
 
 We create a new address / key pair from which we will pledge:
 
-```
-
+```js
   const pledgeFromAddress = client.account.getUnusedAddress('internal')
 
   const privateKey = client.account.getPrivateKeys([
     pledgeFromAddress.address,
   ])[0].privateKey
-
-
 ```
 
 We create and broadcast a transaction from our wallet to this address and the amount we want to pledge:
 
-```
+```js
   const transaction = client.account.createTransaction({
     recipients: [
       {
@@ -96,11 +101,11 @@ We create and broadcast a transaction from our wallet to this address and the am
   const transactionId = await client.account.broadcastTransaction(transaction)
 ```
 
-2. Create and sign the Input UTXO
+### 2. Create and sign the Input UTXO
 
 We assemble the UTXO which will become our signed Input:
 
-```
+```js
   const pledgeUtxo = {
     txId: transactionId,
     outputIndex: 0,
@@ -111,7 +116,7 @@ We assemble the UTXO which will become our signed Input:
 ```
 
 Create a transaction from the UTXO and sign it with our private key using the SIGHASH_ANYONECANPAY flag:
-```
+```js
     const tx = new Dashcore.Transaction()
     .from([pledgeUtxo])
     .to("yPeRRTJg44yBdDmhvLSVvdUyc3DyA1Expw", 1e6)
@@ -119,25 +124,25 @@ Create a transaction from the UTXO and sign it with our private key using the SI
 ```
 
 To store the transaction (and Input) in a portable format, we can convert it to a hex representation of JSON:
-```
+```js
   const txHex = Buffer.from(JSON.stringify(tx.toJSON())).toString('hex')
 ```
 
 
 
-3. Combine and broadcasst the redeem transaction
+### 3. Combine and broadcasst the redeem transaction
 
 Once we have enough signed Inputs to match the Output amount including the network fee, we can combine them into a single transaction.
 
 We start with the entire transaction of the first input:
-```
+```js
   const txJSON = JSON.parse(Buffer.from(txHex, 'hex'))
 
   const redeemTransaction = new Dashcore.Transaction(txJSON)
 ```
 And then add the remaining inputs to it:
 
-```
+```js
   const txInputJSON = JSON.parse(Buffer.from(txInputHex, 'hex'))
 
   const txInput = new Dashcore.Transaction(txJSON)
@@ -147,7 +152,7 @@ And then add the remaining inputs to it:
 
 Now we can broadcast the redeem transaction:
 
-```
+```js
   const transactionId = await client.account.broadcastTransaction(redeemTransaction)
 ```
 
@@ -155,7 +160,7 @@ Now we can broadcast the redeem transaction:
 
 There are a few things you might expect to work or to work differently. To save you some time, here are some gotchas:
 
-1. Using an internal `payFromAddress`
+### 1. Using an internal `payFromAddress`
 
 Using an internal address for the UTXO has two issue. The first is, the wallet might spend the UTXO in a different transaction, redenring the Input unusable for the redeem transaction. The second is that `wallet-lib` has a bug and throws an error (`message: "invalid transaction: Missing inputs. Code:-25"`.
 ) when broadcasting future transactions after a single `SIGHASH_ANYONECANPAY` transaction is broadcast from a mnemonic derived address, rendering the entire mnemonic unusable.
@@ -163,7 +168,7 @@ The solution to both issues is to *hide* the UTXO in a derivation path that `wal
 
 One example path could be a [dip 9 path](https://github.com/dashpay/dips/blob/master/dip-0009.md), though they are supposed to be non-financial:
 
-```
+```js
 const specialFeatureKey = client.account.keyChain.HDPrivateKey.derive(
   `m/9'/1'/4'/1'/1` // LIVENET: to m/9'/1'/4'/1'/1
 )
@@ -171,10 +176,9 @@ const specialFeatureKey = client.account.keyChain.HDPrivateKey.derive(
 const privateKey = specialFeatureKey.privateKey.toString()
 
 const pledgeFromAddress = specialFeatureKey.publicKey.toAddress().toString()
-
 ```
 
-2. Converting and storing just the Input
+### 2. Converting and storing just the Input
 
 To save storage space one would think to just convert the Input to a hex representation of JSON or to serial the transaction or the input directly into its raw hex representation. However going this route throws the following error when combining the inputs into the redeem transaction:
 
@@ -184,7 +188,7 @@ message: "Unable to verify signature: Unrecognized script kind, or not enough in
 
 Evidently some information is lost during the conversion, even though when verifying the signature / script on the input returns true:
 
-```
+```js
 const input = Dashcore.Transaction.Input(
   JSON.parse(Buffer.from(inputHex, 'hex').toString())
 )
@@ -196,13 +200,13 @@ const verification = Dashcore.Script.Interpreter().verify(
 console.log('verification :>> ', verification)
 ```
 
-3. Verifying scripts and signatures
+### 3. Verifying scripts and signatures
 
 As mentioned above in `2.` verifying an Input script that has been converted to JSON and instantiated, verifies to `true` but when combined in the redeemTransaction fails to pass the `.isFullySigned()` method.
 
 On the other hand, verifying the Output script with `Interpreter.verify()` returns false, but `.isFullySigned()` validates the transaction anyways:
 
-```
+```js
 const verification = Dashcore.Script.Interpreter().verify(
     redeemTransaction.outputs[0].script
     )
@@ -220,14 +224,14 @@ Dashcore.Transaction.Input(input.toJSON()).isFullySigned()
 Uncaught NodeError
 ```
 
-4. Paying the Network fee
+### 4. Paying the Network fee
 
 If you set a funding goal and raise enough Inputs to match it, the final input must exceed the Output script's `satoshis` by the network fee. You can add an additional Input just for the fee, paying for the transaction, unless you hit the max Inputs limit that a transaction can have according to Network consensus.
 
 One consideration is to subtract the fee from the Output UTXO and collect Inputs up to the full funding goal amount, then the fee is already included in the inputs.
 
 
-```
+```js
   const feeSatoshis = 3000 // Depends on the amount of Inputs
 
   const pledgeUtxo = {
